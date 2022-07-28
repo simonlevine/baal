@@ -321,6 +321,75 @@ class ModelWrapper:
             # Is an Array or a Tensor
             return np.vstack(preds)
         return [np.vstack(pr) for pr in zip(*preds)]
+        
+    def predict_on_dataloader_generator(self, dataloader: DataLoader, iterations: int,
+                                     use_cuda: bool,half=False,
+                                     verbose=True):
+        """
+        Use the model to predict on a dataloader `iterations` times
+
+        Args:
+            dataloader (DataLoader): DataLoader to predict on.
+            iterations (int): Number of iterations per sample.
+            use_cuda (bool): Use CUDA or not.
+
+            half (bool): If True use half precision.
+            verbose (bool): If True use tqdm to display progress
+
+        Notes:
+            The "batch" is made of `batch_size` * `iterations` samples.
+
+        Returns:
+            Generators [batch_size, n_classes, ..., n_iterations].
+        """
+        self.eval()
+        if len(dataloader.dataset) == 0:
+            return None
+
+        log.info("Start Predict", dataset=len(dataloader.dataset))
+        loader = dataloader
+
+        if verbose:
+            loader = tqdm(loader, total=len(loader), file=sys.stdout)
+        for idx, (data, _) in enumerate(loader):
+
+            pred = self.predict_on_batch(data, iterations, use_cuda)
+            pred = map_on_tensor(lambda x: x.detach(), pred)
+            if half:
+                pred = map_on_tensor(lambda x: x.half(), pred)
+            yield map_on_tensor(lambda x: x.cpu().numpy(), pred)
+
+    def predict_on_dataloader(self, dataloader: DataLoader, iterations: int,
+                           use_cuda: bool,
+                           half=False,
+                           verbose=True):
+        """
+        Use the model to predict on a dataset `iterations` time.
+
+        Args:
+            dataloader (DataLoader): DataLoader to predict on.
+            iterations (int): Number of iterations per sample.
+            use_cuda (bool): Use CUDA or not.
+            workers (int): Number of workers to use.
+            collate_fn (Optional[Callable]): The collate function to use.
+            half (bool): If True use half precision.
+            verbose (bool): If True use tqdm to show progress.
+
+        Notes:
+            The "batch" is made of `batch_size` * `iterations` samples.
+
+        Returns:
+            Array [n_samples, n_outputs, ..., n_iterations].
+        """
+        preds = list(self.predict_on_dataloader_generator(dataloader=dataloader,
+                                                       iterations=iterations, use_cuda=use_cuda,
+                                                       half=half,
+                                                       verbose=verbose))
+
+        if len(preds) > 0 and not isinstance(preds[0], Sequence):
+            # Is an Array or a Tensor
+            return np.vstack(preds)
+        return [np.vstack(pr) for pr in zip(*preds)]
 
     def train_on_batch(
         self, data, target, optimizer, cuda=False, regularizer: Optional[Callable] = None
